@@ -1,0 +1,4 @@
+BROKER_HOST: "openmp.fedml.ai"
+BROKER_PORT: 1883      # outbound only; use 8883 + SSL_ENABLED=true if 1883 is blocked
+SSL_ENABLED: false
+MQTT_QOS: 1

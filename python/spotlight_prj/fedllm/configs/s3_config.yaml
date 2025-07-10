@@ -1,0 +1,7 @@
+BUCKET_NAME: "bagel-fedml-us-east-1"
+REGION_NAME: "us-east-1"
+S3_ENDPOINT: "https://s3.us-east-1.amazonaws.com"
+
+# safest: inject these via the RunPod “Environment Variables” UI
+AWS_ACCESS_KEY_ID:     "${AWS_ACCESS_KEY_ID}"
+AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
