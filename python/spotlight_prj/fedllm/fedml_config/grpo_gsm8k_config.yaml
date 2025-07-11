@@ -26,8 +26,8 @@ train_args:
   federated_optimizer: "FedAvg"
   client_optimizer: "adamw_torch"
   server_optimizer: "FedAvg"
-  client_num_in_total: 2  # number of clients
-  client_num_per_round: 2  # choose from 1~client_num_in_total
+  client_num_in_total: 1  # ← Change to 1 for single client
+  client_num_per_round: 1  # ← Change to 1 for single client
   comm_round: 5  # number of federated rounds
   # GRPO training happens inside each round, so these are ignored:
   local_num_train_epochs: 1  # GRPO controls its own epochs (3)
