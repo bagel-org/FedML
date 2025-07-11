@@ -2,27 +2,127 @@
 
 This fixes a bug in FedML where set_model_params tries to call set_peft_model_state_dict
 even when peft_type="none" is configured, causing AttributeError for non-PEFT models.
+
+This version also integrates GRPO training for GSM8K dataset.
 """
 
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import re
+import torch
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
+from datasets import load_dataset
 from fedml.train.llm.modeling_utils import to_device
 from fedml.train.llm.distributed import barrier
 from peft import PeftModel
+from trl import GRPOTrainer, GRPOConfig
 
-from run_fedllm import LLMTrainer, LLMAggregator, save_checkpoint
+from run_fedllm import LLMTrainer, LLMAggregator, save_checkpoint, load_checkpoint
 from src.peft_utils import set_peft_model_state_dict
 from src.modeling_utils import load_state_dict
 
 
 class FullModelLLMTrainer(LLMTrainer):
-    """Custom trainer that properly handles both PEFT and non-PEFT models."""
+    """Custom trainer that properly handles both PEFT and non-PEFT models with GRPO training."""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # GSM8K specific regex patterns
+        # Regex for GSM8K dataset format (####)
+        self.DATASET_ANS = re.compile(r"####\s*([-+]?\d+\.?\d*)")
+        # Regex for model completion format (\boxed{})
+        self.MODEL_ANS = re.compile(r"\\boxed\{([^}]*)\}")
+    
+    def reward_fn(self, completions, answer, **_):
+        """Reward function for GSM8K that checks if the predicted answer matches the true answer."""
+        out = []
+        for c, ans in zip(completions, answer):
+            # Extract from dataset answer (GSM8K format)
+            tru = self.DATASET_ANS.search(ans)
+            # Extract from model completion (boxed format, fallback to GSM8K format)
+            pred = self.MODEL_ANS.search(c)
+            if not pred:
+                pred = self.DATASET_ANS.search(c)
+            
+            if pred and tru:
+                pred_num = pred.group(1)
+                tru_num = tru.group(1)
+                out.append(1.0 if pred_num == tru_num else -0.2)
+            else:
+                out.append(-0.2)
+        return out
+    
+    def train(self, train_data, device, args):
+        """Override train to use GRPO training on GSM8K dataset."""
+        self.log("Starting GRPO training on GSM8K")
+        
+        # Load GSM8K dataset
+        ds = load_dataset("openai/gsm8k", "main", split="train")
+        ds = ds.rename_column("question", "prompt")
+        
+        # Configure GRPO training
+        cfg = GRPOConfig(
+            output_dir=str(self.checkpoint_dir / "grpo"),
+            per_device_train_batch_size=4,
+            gradient_accumulation_steps=2,
+            max_completion_length=1024,
+            num_generations=8,     # "group" size
+            num_train_epochs=3,    # This will be the local training epochs
+            learning_rate=5e-6,
+            bf16=True,
+            gradient_checkpointing=False,
+            logging_steps=25,
+            log_completions=True,
+            # Add seed for reproducibility in federated setting
+            seed=42 + self.round_idx * 100 + args.rank,  # Different seed per round and client
+        )
+        
+        # Create GRPO trainer
+        grpo_trainer = GRPOTrainer(
+            model=self.model,  # Use FedML's model
+            args=cfg,
+            train_dataset=ds.shuffle(seed=cfg.seed),
+            processing_class=self.tokenizer,  # Use FedML's tokenizer
+            reward_funcs=self.reward_fn,
+        )
+        
+        # Run GRPO training
+        grpo_trainer.train()
+        
+        # Save the trained model in FedML's expected location
+        self.latest_checkpoint_dir = self.checkpoint_dir / f"round_{self.round_idx}_before_agg"
+        self.log(f"Saving GRPO-trained model to \"{self.latest_checkpoint_dir}\"")
+        
+        # Get the latest checkpoint from GRPO training
+        grpo_output_dir = Path(cfg.output_dir)
+        if grpo_output_dir.exists():
+            checkpoints = [p for p in grpo_output_dir.iterdir() if p.name.startswith("checkpoint-")]
+            if checkpoints:
+                latest_checkpoint = max(checkpoints, key=lambda x: int(x.name.split("-")[-1]))
+                # Load the state dict from GRPO's checkpoint
+                state_dict = load_checkpoint(latest_checkpoint)
+                # Save it in FedML's expected location
+                save_checkpoint(
+                    self.model,
+                    self.latest_checkpoint_dir,
+                    is_saving_process=self.training_args.should_save,
+                    state_dict=state_dict,
+                    synchronize=True
+                )
+            else:
+                # If no checkpoint found, save current model state
+                save_checkpoint(self.model, self.latest_checkpoint_dir)
+        else:
+            # Fallback: save current model state
+            save_checkpoint(self.model, self.latest_checkpoint_dir)
+        
+        self.log("GRPO training finished")
     
     def set_model_params(self, model_parameters) -> None:
         self.log("start")

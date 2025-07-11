@@ -1,0 +1,73 @@
+common_args:
+  training_type: "cross_silo"
+  scenario: "horizontal"
+  use_customized_hierarchical: True
+  random_seed: 0
+
+environment_args:
+  bootstrap: fedml_config/bootstrap.sh
+  launcher: "auto"
+
+data_args:
+  dataset: "databricks-dolly"  # Dummy dataset for FedML validation
+  dataset_name: "databricks/databricks-dolly-15k"
+  dataset_path: []
+  client_dataset_path: []
+  test_dataset_size: 100
+  remove_long_seq: True
+
+model_args:
+  skip_log_model_net: True
+  model_name_or_path: "Qwen/Qwen3-0.6B"
+  peft_type: "none"  # Full model fine-tuning
+  use_flash_attention: False
+
+train_args:
+  federated_optimizer: "FedAvg"
+  client_optimizer: "adamw_torch"
+  server_optimizer: "FedAvg"
+  client_num_in_total: 2  # number of clients
+  client_num_per_round: 2  # choose from 1~client_num_in_total
+  comm_round: 5  # number of federated rounds
+  # GRPO training happens inside each round, so these are ignored:
+  local_num_train_epochs: 1  # GRPO controls its own epochs (3)
+  local_max_steps: -1  # Let GRPO control training steps
+  # Other settings
+  deepspeed: null  # Disable DeepSpeed for GRPO compatibility
+  ddp_find_unused_parameters: False
+  seed: 1234
+  fp16: False
+  bf16: True  # Match GRPO config
+  gradient_checkpointing: False  # Match GRPO config
+  per_device_train_batch_size: 4  # Will be overridden by GRPO
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 1  # Will be overridden by GRPO
+  eval_accumulation_steps: 4
+  learning_rate: 5e-6  # Will be overridden by GRPO
+  warmup_steps: 0
+  output_dir: ".logs/FedML/{run_id}"
+  logging_steps: 25
+  eval_steps: 1000000  # Disable eval during training
+  save_steps: 1000000  # Disable intermediate saves
+  save_total_limit: 10
+  logging_strategy: "steps"
+  evaluation_strategy: "no"
+  save_strategy: "no"
+  save_on_each_node: True
+
+validation_args:
+  frequency_of_the_test: 1
+  test_on_clients: "no"
+  is_aggregator_test: False  # Can enable if you want server-side evaluation
+  test_on_client_ranks: []
+
+device_args:
+  using_gpu: True
+
+comm_args:
+  backend: "MQTT_S3"
+  is_mobile: 0
+
+tracking_args:
+  enable_wandb: False
+  wandb_only_server: True 
