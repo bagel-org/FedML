@@ -8,9 +8,15 @@ FedML's `run_fedllm.py` has a bug where it tries to use PEFT-specific functions 
 ## Solution
 We've created custom subclasses that properly handle both PEFT and non-PEFT models without modifying the library code.
 
+## Checkpoint Format Fix
+The original code saves initial checkpoints as `model.safetensors` by default, but the `load_checkpoint` function expects `pytorch_model.bin`. Our custom code includes a fix that:
+- Overrides the `_save_checkpoint` function to force `safe_serialization=False`
+- Ensures all checkpoints are saved as `pytorch_model.bin` for compatibility
+- This fix is automatically applied when using `run_fedllm_custom.py`
+
 ## Files Created
 - `custom_trainer.py`: Contains `FullModelLLMTrainer` and `FullModelLLMAggregator` classes that check model type before applying state dict
-- `run_fedllm_custom.py`: Custom runner that uses the fixed trainer/aggregator classes
+- `run_fedllm_custom.py`: Custom runner that uses the fixed trainer/aggregator classes and patches checkpoint saving
 - `launch_fedllm_custom.py`: Custom launcher that runs the custom runner
 - `scripts/run_fedml_client_custom.sh`: Custom client launch script
 - `scripts/run_fedml_server_custom.sh`: Custom server launch script

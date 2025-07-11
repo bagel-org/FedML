@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Custom FedLLM runner that properly handles non-PEFT models.
 
 This runner uses FullModelLLMTrainer and FullModelLLMAggregator instead of the default
@@ -13,6 +14,8 @@ from run_fedllm import main, _parse_args, transform_data_to_fedml_format, save_c
 from custom_trainer import FullModelLLMTrainer, FullModelLLMAggregator
 
 # Import everything else we need
+from typing import Any, Dict, Optional
+from torch.nn import Module
 from fedml import FedMLRunner
 from fedml.train.llm.configurations import DatasetArguments, ExperimentArguments, ModelArguments
 from fedml.train.llm.distributed import barrier
@@ -23,8 +26,40 @@ from fedml.train.llm.train_utils import (
     get_tokenizer,
 )
 from fedml.train.llm.utils import parse_hf_args, save_config
+from fedml.train.llm.typing import PathType
 import gc
 from pathlib import Path
+import torch
+from peft import PeftModel
+from transformers import PreTrainedModel
+from transformers.utils import WEIGHTS_NAME as HF_WEIGHTS_NAME
+
+
+def _save_checkpoint(
+        model: Module,
+        checkpoint_dir: PathType,
+        state_dict: Optional[Dict[str, Any]] = None
+) -> None:
+    """Custom checkpoint saving that ensures pytorch_model.bin is created."""
+    if state_dict is None:
+        state_dict = model.state_dict()
+
+    if isinstance(model, (PeftModel, PreTrainedModel)):
+        # Force safe_serialization=False to get pytorch_model.bin instead of model.safetensors
+        model.save_pretrained(
+            save_directory=str(checkpoint_dir),
+            state_dict=state_dict,
+            safe_serialization=False  # This ensures pytorch_model.bin is created
+        )
+    else:
+        checkpoint_dir = Path(checkpoint_dir)
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        torch.save(state_dict, str(checkpoint_dir / HF_WEIGHTS_NAME))
+
+
+# Monkey patch the _save_checkpoint function in the imported module
+import run_fedllm
+run_fedllm._save_checkpoint = _save_checkpoint
 
 
 def main_custom(args):
