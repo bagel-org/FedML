@@ -11,38 +11,53 @@ tok = AutoTokenizer.from_pretrained(BASE)
 tok.pad_token = tok.eos_token
 
 ds = load_dataset("openai/gsm8k", "main", split="train")
+ds = ds.rename_column("question", "prompt")
 
-ANS = re.compile(r"####\s*([-+]?\d+\.?\d*)")
-def reward_fn(completions, samples, **_):
+# Regex for GSM8K dataset format (####)
+DATASET_ANS = re.compile(r"####\s*([-+]?\d+\.?\d*)")
+# Regex for model completion format (\boxed{})
+MODEL_ANS = re.compile(r"\\boxed\{([^}]*)\}")
+
+def reward_fn(completions, answer, **_):
     out = []
-    for c, s in zip(completions, samples):
-        tru = ANS.search(s["answer"])
-        pred = ANS.search(c)
-        out.append(1.0 if pred and tru and pred.group(1)==tru.group(1) else -0.2)
+    for c, ans in zip(completions, answer):
+        # Extract from dataset answer (GSM8K format)
+        tru = DATASET_ANS.search(ans)
+        # Extract from model completion (boxed format, fallback to GSM8K format)
+        pred = MODEL_ANS.search(c)
+        if not pred:
+            pred = DATASET_ANS.search(c)
+        
+        if pred and tru:
+            pred_num = pred.group(1)
+            tru_num = tru.group(1)
+            out.append(1.0 if pred_num == tru_num else -0.2)
+        else:
+            out.append(-0.2)
     return out
+
 
 cfg = GRPOConfig(
     output_dir=OUT,
-    per_device_batch_size=1,
-    gradient_accumulation_steps=16,
-    max_length=1024,
-    max_new_tokens=256,
+    per_device_train_batch_size=8,
+    gradient_accumulation_steps=2,
+    max_completion_length=1024,
+    num_generations=8,     # "group" size
     num_train_epochs=3,
-    generate_num_samples=4,     # “group” size
     learning_rate=5e-6,
     bf16=True,
-    gradient_checkpointing=True,
+    gradient_checkpointing=False,
     logging_steps=25,
+    log_completions=True,
 )
 
-policy = AutoModelForCausalLM.from_pretrained(BASE, torch_dtype=torch.bfloat16)
+policy = AutoModelForCausalLM.from_pretrained(BASE, torch_dtype=torch.bfloat16, use_cache=False)
 trainer = GRPOTrainer(
     model=policy,
     args=cfg,
     train_dataset=ds.shuffle(seed=42),
-    tokenizer=tok,
+    processing_class=tok,
     reward_funcs=reward_fn,
-    reference_model=BASE,
 )
 trainer.train()
 
