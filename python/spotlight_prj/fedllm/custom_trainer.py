@@ -139,6 +139,13 @@ class FullModelLLMTrainer(LLMTrainer):
         
         self.log("GRPO training finished")
     
+    def on_after_local_training(self, train_data, device, args):
+        """Override to skip the parent's checkpoint saving since we handle it in train()."""
+        self.log("Skipping parent's on_after_local_training (already saved in train method)")
+        # We already saved the checkpoint in the train() method, so we don't need to do anything here
+        # This prevents the AttributeError from trying to save the trainer's optimizer state
+        return None
+    
     def set_model_params(self, model_parameters) -> None:
         self.log("start")
 
