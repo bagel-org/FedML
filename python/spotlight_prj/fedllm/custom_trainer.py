@@ -72,19 +72,35 @@ class FullModelLLMTrainer(LLMTrainer):
         grpo_num_epochs = getattr(args, 'grpo_num_epochs', 3)
         grpo_batch_size = getattr(args, 'grpo_batch_size', 4)
         
+        # Calculate effective batch size for GRPO constraint
+        # effective_batch_size = num_gpus * per_device_batch_size * gradient_accumulation_steps
+        gradient_accumulation_steps = 2
+        effective_batch_size = 1 * grpo_batch_size * gradient_accumulation_steps
+        
+        # Num generations must evenly divide the effective batch size
+        # For testing with small batch sizes, use a smaller num_generations
+        if effective_batch_size >= 8:
+            num_generations = 8
+        elif effective_batch_size >= 4:
+            num_generations = 4
+        else:
+            num_generations = 2
+        
         # For testing, we can use a very small number of steps
         if grpo_max_steps > 0:
             self.log(f"GRPO training for {grpo_max_steps} steps (test mode)")
         else:
             self.log(f"GRPO training for {grpo_num_epochs} epochs")
         
+        self.log(f"Using num_generations={num_generations} with effective batch size={effective_batch_size}")
+        
         # Configure GRPO training
         cfg = GRPOConfig(
             output_dir=str(self.checkpoint_dir / "grpo"),
             per_device_train_batch_size=grpo_batch_size,
-            gradient_accumulation_steps=2,
+            gradient_accumulation_steps=gradient_accumulation_steps,
             max_completion_length=1024,
-            num_generations=8,     # "group" size
+            num_generations=num_generations,  # Adjusted based on effective batch size
             num_train_epochs=grpo_num_epochs if grpo_max_steps <= 0 else 1,  # Use 1 epoch if max_steps is set
             max_steps=grpo_max_steps if grpo_max_steps > 0 else -1,  # Override epochs with max_steps
             learning_rate=5e-6,
