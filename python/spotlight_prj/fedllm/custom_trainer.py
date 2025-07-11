@@ -66,19 +66,32 @@ class FullModelLLMTrainer(LLMTrainer):
         ds = load_dataset("openai/gsm8k", "main", split="train")
         ds = ds.rename_column("question", "prompt")
         
+        # Get GRPO-specific settings from FedML config or use defaults
+        grpo_max_steps = getattr(args, 'grpo_max_steps', -1)  # -1 means use epochs
+        grpo_num_epochs = getattr(args, 'grpo_num_epochs', 3)
+        grpo_batch_size = getattr(args, 'grpo_batch_size', 4)
+        
+        # For testing, we can use a very small number of steps
+        if grpo_max_steps > 0:
+            self.log(f"GRPO training for {grpo_max_steps} steps (test mode)")
+        else:
+            self.log(f"GRPO training for {grpo_num_epochs} epochs")
+        
         # Configure GRPO training
         cfg = GRPOConfig(
             output_dir=str(self.checkpoint_dir / "grpo"),
-            per_device_train_batch_size=4,
+            per_device_train_batch_size=grpo_batch_size,
             gradient_accumulation_steps=2,
             max_completion_length=1024,
             num_generations=8,     # "group" size
-            num_train_epochs=3,    # This will be the local training epochs
+            num_train_epochs=grpo_num_epochs if grpo_max_steps <= 0 else 1,  # Use 1 epoch if max_steps is set
+            max_steps=grpo_max_steps if grpo_max_steps > 0 else -1,  # Override epochs with max_steps
             learning_rate=5e-6,
             bf16=True,
             gradient_checkpointing=False,
-            logging_steps=25,
+            logging_steps=5 if grpo_max_steps > 0 and grpo_max_steps < 50 else 25,  # More frequent logging for short runs
             log_completions=True,
+            save_steps=grpo_max_steps if grpo_max_steps > 0 else 500,  # Save at the end if using max_steps
             # Add seed for reproducibility in federated setting
             seed=42 + self.round_idx * 100 + args.rank,  # Different seed per round and client
         )
