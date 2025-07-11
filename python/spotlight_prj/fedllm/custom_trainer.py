@@ -14,8 +14,9 @@ import re
 import torch
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
+from accelerate.utils import broadcast_object_list
 from datasets import load_dataset
 from fedml.train.llm.modeling_utils import to_device
 from fedml.train.llm.distributed import barrier
@@ -164,6 +165,31 @@ class FullModelLLMTrainer(LLMTrainer):
             )
 
         self.log("finished")
+    
+    # Explicitly define sync_process_group to ensure FedML recognizes it
+    def sync_process_group(
+            self,
+            round_idx: Optional[int] = None,
+            model_params: Optional[Any] = None,
+            client_index: Optional[int] = None,
+            from_process: int = 0
+    ) -> None:
+        self.log("start")
+
+        if round_idx is None:
+            round_idx = self.round_idx
+
+        broadcast_object_list([round_idx, model_params, client_index], from_process=from_process)
+
+        self.log("finished")
+
+    def await_sync_process_group(self, from_process: int = 0) -> list:
+        self.log("start")
+
+        outputs = broadcast_object_list([None, None, None], from_process=from_process)
+
+        self.log("finished")
+        return outputs
 
 
 class FullModelLLMAggregator(LLMAggregator):
