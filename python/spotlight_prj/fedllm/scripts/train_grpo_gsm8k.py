@@ -39,7 +39,7 @@ def reward_fn(completions, answer, **_):
 
 cfg = GRPOConfig(
     output_dir=OUT,
-    per_device_train_batch_size=8,
+    per_device_train_batch_size=4,
     gradient_accumulation_steps=2,
     max_completion_length=1024,
     num_generations=8,     # "group" size
