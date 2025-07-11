@@ -129,28 +129,13 @@ class FullModelLLMTrainer(LLMTrainer):
         self.latest_checkpoint_dir = self.checkpoint_dir / f"round_{self.round_idx}_before_agg"
         self.log(f"Saving GRPO-trained model to \"{self.latest_checkpoint_dir}\"")
         
-        # Get the latest checkpoint from GRPO training
-        grpo_output_dir = Path(cfg.output_dir)
-        if grpo_output_dir.exists():
-            checkpoints = [p for p in grpo_output_dir.iterdir() if p.name.startswith("checkpoint-")]
-            if checkpoints:
-                latest_checkpoint = max(checkpoints, key=lambda x: int(x.name.split("-")[-1]))
-                # Load the state dict from GRPO's checkpoint
-                state_dict = load_checkpoint(latest_checkpoint)
-                # Save it in FedML's expected location
-                save_checkpoint(
-                    self.model,
-                    self.latest_checkpoint_dir,
-                    is_saving_process=self.training_args.should_save,
-                    state_dict=state_dict,
-                    synchronize=True
-                )
-            else:
-                # If no checkpoint found, save current model state
-                save_checkpoint(self.model, self.latest_checkpoint_dir)
-        else:
-            # Fallback: save current model state
-            save_checkpoint(self.model, self.latest_checkpoint_dir)
+        # GRPO trainer updates the model in-place, so we can directly save the current model state
+        save_checkpoint(
+            self.model,
+            self.latest_checkpoint_dir,
+            is_saving_process=self.training_args.should_save,
+            synchronize=True
+        )
         
         self.log("GRPO training finished")
     
