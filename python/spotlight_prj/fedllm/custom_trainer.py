@@ -70,19 +70,23 @@ class FullModelLLMTrainer(LLMTrainer):
         # Get GRPO-specific settings from FedML config or use defaults
         grpo_max_steps = getattr(args, 'grpo_max_steps', -1)  # -1 means use epochs
         grpo_num_epochs = getattr(args, 'grpo_num_epochs', 3)
-        grpo_batch_size = getattr(args, 'grpo_batch_size', 4)
+        grpo_batch_size = getattr(args, 'grpo_batch_size', 32)
         
         # Calculate effective batch size for GRPO constraint
         # effective_batch_size = num_gpus * per_device_batch_size * gradient_accumulation_steps
-        gradient_accumulation_steps = 2
+        gradient_accumulation_steps = 4
         effective_batch_size = 1 * grpo_batch_size * gradient_accumulation_steps
         
         # Num generations must evenly divide the effective batch size
         # For testing with small batch sizes, use a smaller num_generations
-        if effective_batch_size >= 8:
+        if effective_batch_size >= 64:
+            num_generations = 64
+        elif effective_batch_size >= 32:
+            num_generations = 32
+        elif effective_batch_size >= 16:
+            num_generations = 16
+        elif effective_batch_size >= 8:
             num_generations = 8
-        elif effective_batch_size >= 4:
-            num_generations = 4
         else:
             num_generations = 2
         
@@ -105,7 +109,7 @@ class FullModelLLMTrainer(LLMTrainer):
             max_steps=grpo_max_steps if grpo_max_steps > 0 else -1,  # Override epochs with max_steps
             learning_rate=5e-6,
             bf16=True,
-            gradient_checkpointing=False,
+            gradient_checkpointing=True,
             logging_steps=5 if grpo_max_steps > 0 and grpo_max_steps < 50 else 25,  # More frequent logging for short runs
             log_completions=True,
             save_steps=grpo_max_steps if grpo_max_steps > 0 else 500,  # Save at the end if using max_steps
