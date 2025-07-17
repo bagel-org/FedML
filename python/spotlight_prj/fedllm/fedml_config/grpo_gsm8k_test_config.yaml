@@ -74,5 +74,5 @@ comm_args:
 
 tracking_args:
   enable_wandb: True
-  wandb_only_server: True
+  wandb_only_server: False  # Enable wandb for both server and clients
   wandb_project: "fedllm_grpo_gsm8k" 
